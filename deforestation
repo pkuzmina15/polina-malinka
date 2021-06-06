@@ -1,0 +1,164 @@
+Create VIEW
+
+create view forestation as
+with t1 as
+(select f.country_code, f.country_name, f.year year1,
+f.forest_area_sqkm,l.total_area_sq_mi*2.59 as total_area_sqkm,
+r.region,
+r.income_group
+   from forest_area f
+   join land_area l
+   on f.country_code=l.country_code AND f.year=l.year
+   join regions r
+   on r.country_code=f.country_code)
+select country_code, country_name,region, year1,
+forest_area_sqkm, total_area_sqkm,
+(forest_area_sqkm*100)/total_area_sqkm percentage,
+income_group
+from t1
+
+GLOBAL SITUATION
+
+select A.country_name, ((B.forest_area_sqkm - A.forest_area_sqkm)*100)/ A.forest_area_sqkm percent_change,
+B.forest_area_sqkm - A.forest_area_sqkm absolut_change
+FROM forestation A
+JOIN forestation B
+ON  A.country_name=B.country_name
+WHERE A.year1=1990 AND B.year1=2016
+AND A.country_name in ('World')
+
+with t1 as
+(select year1,SUM(forest_area_sqkm),
+  lag(sum(forest_area_sqkm)) over (order by year1) as Previous_year,
+  sum(forest_area_sqkm)-lag(sum(forest_area_sqkm)) over (order by year1) as year_diff
+from forestation
+  where year1 in ('1990','2016')
+  AND country_name='World'
+group by 1
+order by 1),
+t2 as (select year_diff*-1 as diff from t1
+  where year1 in ('2016'))
+select country_name, year1, sum(total_area_sqkm)
+from forestation
+  group by 1,2
+  having sum(total_area_sqkm)<(select diff from t2)
+  and year1 in ('2016')
+order by 3 desc
+
+2. REGIONAL OUTLOOK
+
+select REGION, year1, cast(percentage as decimal(10,2))
+from forestation
+where REGION in ('World')
+and year1='2016'
+
+with t1 as
+(select region, year1, sum(forest_area_sqkm) as total_forest ,
+sum(total_area_sqkm) as total_land
+from forestation
+where year1='2016'
+group by 1,2)
+select region, year1, cast((total_forest*100)/total_land as  decimal(10,2)) percent
+from t1
+order by 3 desc
+
+
+Table 2.1: Percent Forest Area by Region, 1990 & 2016:
+
+with t1 as
+(select region, year1, sum(forest_area_sqkm) as total_forest ,
+sum(total_area_sqkm) as total_land
+  from forestation
+  where year1 in('1990','2016')
+  group by 1,2),
+t2 as
+(select region, year1, cast((total_forest*100)/total_land as decimal(10,2)) percent,
+lead(cast((total_forest*100)/total_land as decimal(10,2))) over (order by region,year1) as percent_2016
+  from t1
+  order by 3 desc)
+select region,percent, percent_2016, percent_2016-percent diff
+  from t2
+  where year1='1990'
+  order by 4
+
+
+
+COUNTRY-LEVEL DETAIL
+
+Table 3.1: Top 5 Amount Decrease in Forest Area by Country, 1990 & 2016:
+
+with t1 as (select country_name, region, year1, forest_area_sqkm,
+sum(forest_area_sqkm) OVER (PARTITION BY country_name ORDER BY 3) AS running_total
+  from forestation
+  where year1 in('1990','2016')
+  group by 1,2,3,4
+  order by 1,2),
+t2 as (select country_name, region, year1, forest_area_sqkm,
+running_total-forest_area_sqkm forest_area_sqkm2016
+  from t1
+  where year1 in('1990')
+  group by 1,2,3,4,5
+  order by 1,2)
+select country_name, region, forest_area_sqkm, forest_area_sqkm2016,
+forest_area_sqkm2016-forest_area_sqkm diff
+  from t2
+  group by 1,2,3,4,5
+  order by 5 desc
+
+
+Table 3.2: Top 5 Percent Decrease in Forest Area by Country, 1990 & 2016:
+
+with t1 as (select country_name, region, year1, percentage,
+sum(percentage) OVER (PARTITION BY country_name ORDER BY 3) AS running_total
+  from forestation
+  where year1 in('1990','2016')
+  group by 1,2,3,4
+  order by 1,2),
+t2 as (select country_name, region, year1, percentage,
+running_total-percentage forest_area_sqkm2016
+  from t1
+  where year1 in('1990')
+  group by 1,2,3,4,5
+  order by 1,2)
+select country_name, region,
+  cast(percentage as decimal(10,2)),
+  cast(forest_area_sqkm2016 as decimal(10,2)),
+  cast(((forest_area_sqkm2016-percentage)*100/percentage) as decimal(10,2)) diff
+ from t2
+ group by 1,2,3,4,5
+ order by 5
+
+
+Quartiles
+
+Table 3.3: Count of Countries Grouped by Forestation Percent Quartiles, 2016:
+with t1 as
+(select country_name, year1,percentage,
+CASE WHEN percentage >=75  THEN '1'
+   WHEN percentage >=50  AND percentage < 75 THEN '2'
+   WHEN percentage >=25  AND percentage <50  THEN '3'
+   ELSE '4' END AS rank_quartiles
+from forestation
+where percentage IS NOT NULL
+AND year1='2016'
+AND COUNTRY_name!='World'
+order by percentage desc)
+select rank_quartiles, count(country_name)
+from t1
+group by 1
+order by 1
+
+Table 3.4: Top Quartile Countries, 2016:
+with t1 as
+(select country_name, region, year1,percentage,
+CASE WHEN percentage >=75  THEN '1'
+   WHEN percentage >=50  AND percentage < 75 THEN '2'
+   WHEN percentage >=25  AND percentage <50  THEN '3'
+   ELSE '4' END AS rank_quartiles
+from forestation
+where percentage IS NOT NULL
+AND year1='2016'
+order by percentage desc)
+select country_name,region,cast(percentage as decimal(10,2))
+from t1
+where rank_quartiles='1'
